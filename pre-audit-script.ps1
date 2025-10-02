@@ -1,6 +1,7 @@
    <#
    .SYNOPSIS
        Azure Storage Lifecycle Policy - Pre-Implementation Audit Script
+       Version: 1.1.0
        
        REQUIREMENTS:
        - PowerShell 7.0 or higher (recommended) or Windows PowerShell 5.1
