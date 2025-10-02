@@ -1,0 +1,70 @@
+# PowerShell Module Cache
+PSGetModuleInfo.xml
+
+# Output files from script execution
+*.csv
+*_summary.txt
+storage_audit_*.csv
+storage_audit_*_summary.txt
+
+# PowerShell transcripts
+PowerShell_transcript*.txt
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Windows image file caches
+Thumbs.db
+ehthumbs.db
+
+# Folder config file
+Desktop.ini
+
+# Recycle Bin used on file shares
+$RECYCLE.BIN/
+
+# Temporary files
+*.tmp
+*.temp
+~$*
+
+# Logs
+*.log
+logs/
+*.stackdump
+
+# IDE files
+.idea/
+*.swp
+*.swo
+*~
+
+# Test results
+TestResults/
+*.trx
+
+# Build artifacts
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+
+# Azure credentials (if accidentally saved)
+*.publishsettings
+*.azureProfile
+
+# Environment files
+.env
+.env.local
