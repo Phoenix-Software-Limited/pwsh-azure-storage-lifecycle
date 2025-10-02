@@ -15,6 +15,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automated email reporting
 - Dashboard/visualization support
 
+## [1.1.1] - 2025-10-02
+
+### Fixed
+- **Critical:** Script hanging when ThrottleLimit set too high (> 10), caused by Azure throttling
+- Blob retrieval operations now have proper timeout handling (default: 30 minutes per container)
+- Containers that timeout or fail are now gracefully skipped instead of hanging the entire script
+
+### Added
+- `TimeoutMinutes` parameter for configurable per-container timeout (default: 30 minutes)
+- Automatic warning when ThrottleLimit > 10 with 5-second cancellation window
+- Failed/timed-out containers are now tracked and reported in summary
+- Failed containers list included in both console output and exported reports
+- Validation for ThrottleLimit parameter (range: 1-15)
+
+### Changed
+- Improved error handling with better error messages for timeout scenarios
+- Enhanced progress reporting to distinguish between completed and empty containers
+- Summary report now shows containers analyzed vs total containers
+- Export files now include failed containers section when applicable
+
+### Performance
+- More reliable parallel processing by preventing Azure throttling-induced hangs
+- Better resource management with proper job cleanup
+- Recommended maximum ThrottleLimit reduced from 15 to 10 for stability
+
 ## [1.1.0] - 2025-10-02
 
 ### Added
@@ -105,6 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Minor version (0.X.0) - New features, backwards compatible
 - Patch version (0.0.X) - Bug fixes, backwards compatible
 
-[Unreleased]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/releases/tag/v1.0.0

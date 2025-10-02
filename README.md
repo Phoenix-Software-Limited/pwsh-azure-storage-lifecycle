@@ -92,6 +92,12 @@ cd pwsh-azure-storage-lifecycle
     -storageAccount "mystorageaccount" `
     -retentionDays 90 `
     -ThrottleLimit 10
+
+# Force PowerShell 7 and bypass execution policy
+pwsh -ExecutionPolicy Bypass -File .\pre-audit-script-parallel.ps1 `
+    -resourceGroup "myResourceGroup" `
+    -storageAccount "mystorageaccount" `
+    -retentionDays 90
 ```
 
 ### With Custom Export Path (Both Scripts)
@@ -112,7 +118,8 @@ cd pwsh-azure-storage-lifecycle
 | `storageAccount` | Yes | Name of the storage account to analyze | |
 | `retentionDays` | Yes | Proposed retention period in days (blobs older than this will be flagged for deletion) | |
 | `exportPath` | No | Custom path for CSV export (defaults to `%TEMP%\storage_audit_[timestamp].csv`) | |
-| `ThrottleLimit` | No | Number of containers to process in parallel (default: 5, range: 3-15 recommended) | ✓ |
+| `ThrottleLimit` | No | Number of containers to process in parallel (default: 5, **max 10 recommended**, range: 1-15) | ✓ |
+| `TimeoutMinutes` | No | Timeout in minutes for each container (default: 30). Prevents hanging on Azure throttling | ✓ |
 | `ShowDetailedOutput` | No | Display detailed output for each container as processed | ✓ |
 
 ## Performance Comparison
@@ -256,15 +263,68 @@ To modify age distribution categories, edit the `Group-Object` section (lines 90
 
 ### Performance Issues with Large Storage Accounts
 - **Use the parallel script** for storage accounts with many containers
-- Increase `-ThrottleLimit` (e.g., 8-10) for faster processing
-- Reduce `-ThrottleLimit` (e.g., 3) if experiencing Azure throttling errors
+- **Do NOT use ThrottleLimit above 10** - this causes Azure throttling and hangs
+- Start with default (5 threads), increase carefully to 8-10 maximum
+- If containers timeout, reduce `-ThrottleLimit` to 3-5
+- Increase `-TimeoutMinutes` for containers with many blobs
 - Consider running during off-peak hours
 - Monitor progress via the console output
+
+### Script Hangs or Times Out
+If the script hangs at "Get-AzStorageBlob task status" or containers time out:
+
+**Cause:** Using too many parallel threads (> 10) causes Azure to throttle requests
+
+**Solution:**
+```powershell
+# Reduce throttle limit to 5 or lower
+pwsh -ExecutionPolicy Bypass -File .\pre-audit-script-parallel.ps1 `
+    -resourceGroup "rg" `
+    -storageAccount "sa" `
+    -retentionDays 90 `
+    -ThrottleLimit 5
+
+# If still timing out, increase timeout and reduce threads
+pwsh -ExecutionPolicy Bypass -File .\pre-audit-script-parallel.ps1 `
+    -resourceGroup "rg" `
+    -storageAccount "sa" `
+    -retentionDays 90 `
+    -ThrottleLimit 3 `
+    -TimeoutMinutes 60
+```
+
+**Important:** The script will now automatically skip containers that timeout and continue processing others. Failed containers are listed in the summary.
 
 ### "Script requires PowerShell 7.0 or higher"
 - The parallel script requires PowerShell 7+
 - Install: `winget install Microsoft.PowerShell`
 - Or use the original script which supports PowerShell 5.1
+
+### Execution Policy Issues
+If you encounter execution policy restrictions:
+
+```powershell
+# Option 1: Bypass execution policy for this session only
+pwsh -ExecutionPolicy Bypass -File .\pre-audit-script-parallel.ps1 -resourceGroup "rg" -storageAccount "sa" -retentionDays 90
+
+# Option 2: Set execution policy for current user (permanent)
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# Option 3: Unblock the script file
+Unblock-File -Path .\pre-audit-script-parallel.ps1
+```
+
+### Ensuring PowerShell 7 is Used
+```powershell
+# Check current PowerShell version
+$PSVersionTable.PSVersion
+
+# Force PowerShell 7 (if installed)
+pwsh -File .\pre-audit-script-parallel.ps1 -resourceGroup "rg" -storageAccount "sa" -retentionDays 90
+
+# Combine: Force PowerShell 7 AND bypass execution policy
+pwsh -ExecutionPolicy Bypass -File .\pre-audit-script-parallel.ps1 -resourceGroup "rg" -storageAccount "sa" -retentionDays 90
+```
 
 ## Contributing
 
@@ -279,6 +339,14 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 For issues, questions, or contributions, please open an issue in the repository.
 
 ## Changelog
+
+### Version 1.1.1 (Bug Fix)
+- **Fixed:** Script hanging when ThrottleLimit too high (Azure throttling issue)
+- Added timeout handling (30 minutes default per container)
+- Added validation and warning when ThrottleLimit > 10
+- Containers that timeout are now skipped and reported
+- Failed containers listed in summary and exported reports
+- Improved error handling and progress reporting
 
 ### Version 1.1.0
 - Added multi-threaded parallel version (4-8x faster)
