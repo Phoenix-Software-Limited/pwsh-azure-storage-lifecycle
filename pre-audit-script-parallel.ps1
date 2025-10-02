@@ -141,7 +141,8 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
     $retentionDays = $using:retentionDays
     $costPerGBMonth = $using:costPerGBMonth
     $ShowDetailedOutput = $using:ShowDetailedOutput
-    $ctx = $using:ctx
+    $resourceGroup = $using:resourceGroup
+    $storageAccount = $using:storageAccount
     $processedCount = $using:processedCount
     $totalContainers = $using:totalContainers
     $TimeoutMinutes = $using:TimeoutMinutes
@@ -150,43 +151,28 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
     $containerName = $container.Name
     
     try {
-        # Create a script block for the blob retrieval with timeout
-        $getBlobsScript = {
-            param($ContainerName, $Context)
+        # Recreate context within this thread (context objects cannot be serialized across jobs)
+        $ctx = (Get-AzStorageAccount -ResourceGroupName $resourceGroup -Name $storageAccount).Context
+        
+        # Get all blobs in container with retry logic
+        $maxRetries = 3
+        $retryCount = 0
+        $blobs = $null
+        $success = $false
+        
+        while (-not $success -and $retryCount -lt $maxRetries) {
             try {
-                $blobs = Get-AzStorageBlob -Container $ContainerName -Context $Context -ErrorAction Stop
-                return $blobs
+                $blobs = Get-AzStorageBlob -Container $containerName -Context $ctx -ErrorAction Stop
+                $success = $true
             }
             catch {
-                throw "Failed to get blobs: $_"
+                $retryCount++
+                if ($retryCount -ge $maxRetries) {
+                    throw "Failed to get blobs after $maxRetries attempts: $_"
+                }
+                Write-Warning "Container '$containerName' attempt $retryCount failed, retrying in 5 seconds..."
+                Start-Sleep -Seconds 5
             }
-        }
-        
-        # Execute with timeout using Start-Job (more reliable than runspaces for Azure cmdlets)
-        $job = Start-Job -ScriptBlock $getBlobsScript -ArgumentList $containerName, $ctx
-        
-        # Wait for job with timeout
-        $timeoutSeconds = $TimeoutMinutes * 60
-        $completed = Wait-Job -Job $job -Timeout $timeoutSeconds
-        
-        if ($null -eq $completed) {
-            # Job timed out
-            Stop-Job -Job $job
-            Remove-Job -Job $job -Force
-            Write-Warning "Container '$containerName' timed out after $TimeoutMinutes minutes (possible Azure throttling). Skipping..."
-            $failedContainers.Add($containerName)
-            return $null
-        }
-        
-        # Get the results
-        $blobs = Receive-Job -Job $job
-        Remove-Job -Job $job
-        
-        # Check if job had errors
-        if ($job.State -eq 'Failed') {
-            Write-Warning "Container '$containerName' failed: $($job.ChildJobs[0].JobStateInfo.Reason.Message)"
-            $failedContainers.Add($containerName)
-            return $null
         }
         
         # Skip if container is empty
