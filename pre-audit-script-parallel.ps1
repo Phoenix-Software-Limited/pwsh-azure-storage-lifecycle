@@ -230,7 +230,8 @@ function Invoke-WithTokenRefresh {
     
     # Check if token needs refresh
     if (Test-AzureTokenExpiration) {
-        Write-Log "$OperationName: Token refresh needed" -Level "INFO"
+        $message = "$($OperationName): Token refresh needed"
+        Write-Log $message -Level "INFO"
         if (-not (Update-AzureToken)) {
             throw "Failed to refresh Azure token. Please run Connect-AzAccount again."
         }
@@ -241,7 +242,8 @@ function Invoke-WithTokenRefresh {
         & $ScriptBlock
     }
     catch {
-        Write-Log "$OperationName failed: $_" -Level "ERROR"
+        $errorMessage = "$($OperationName) failed: $_"
+        Write-Log $errorMessage -Level "ERROR"
         throw
     }
 }
