@@ -15,6 +15,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automated email reporting
 - Dashboard/visualization support
 
+## [1.2.0] - 2025-10-03
+
+### Added
+- **Comprehensive logging system** - All operations now logged to timestamped log file
+- Thread-safe logging within parallel processing blocks using mutex
+- Real-time progress tracking with detailed per-container status updates
+- Automatic log file generation with customizable path via `-LogPath` parameter
+- Execution duration tracking and reporting
+- Detailed logging of connection attempts, blob retrieval, and analysis progress
+- Log levels (INFO, WARNING, ERROR, SUCCESS) with color-coded console output
+- Each container logs: start, connection, blob retrieval attempts, analysis, and completion
+- Failed containers now logged with detailed error messages
+- Performance metrics logged including total execution time
+
+### Changed
+- All console output now mirrored to log file for complete audit trail
+- Enhanced visibility during long-running operations (addresses apparent "hanging" issue)
+- Log file path displayed at script start for easy monitoring
+- Summary report includes log file location
+- Container processing now logs each stage (connecting, retrieving blobs, analyzing, completing)
+
+### Improved
+- **Visibility during execution** - No more "silent" periods; log file updates continuously
+- Retry attempts now explicitly logged with attempt numbers
+- Empty containers clearly identified in logs
+- Better troubleshooting capability with complete operation history
+- Execution time displayed in HH:mm:ss format
+
+### Technical Details
+- Implemented `Write-Log` function for main thread operations
+- Implemented `Write-ThreadLog` function with mutex for parallel thread safety
+- Mutex named "StorageAuditLogMutex" prevents concurrent log file write conflicts
+- Log files automatically timestamped to prevent overwrites
+- All Write-Host calls replaced with Write-Log for consistent logging
+
+### Use Cases
+- Monitor script progress in real-time by tailing the log file
+- Troubleshoot which containers are taking longest to process
+- Identify Azure API throttling or connection issues
+- Audit complete operation history for compliance
+- Debug failed containers with detailed error context
+
 ## [1.1.3] - 2025-10-03
 
 ### Fixed
@@ -160,7 +202,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Minor version (0.X.0) - New features, backwards compatible
 - Patch version (0.0.X) - Bug fixes, backwards compatible
 
-[Unreleased]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.1...v1.1.3
 [1.1.1]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.0.0...v1.1.0

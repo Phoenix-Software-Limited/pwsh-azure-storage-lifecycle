@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Azure Storage Lifecycle Policy - Pre-Implementation Audit Script (Multi-Threaded Version)
-    Version: 1.1.3
+    Version: 1.2.0
     
     REQUIREMENTS:
     - PowerShell 7.0 or higher (REQUIRED for parallel processing)
@@ -56,6 +56,8 @@
     Timeout in minutes for processing each container (default: 30)
 .PARAMETER ShowDetailedOutput
     Display detailed output for each container (default: false for cleaner output in parallel mode)
+.PARAMETER LogPath
+    Path to log file for detailed progress tracking (optional, auto-generated if not specified)
 #>
 
 param(
@@ -75,8 +77,30 @@ param(
     
     [int]$TimeoutMinutes = 30,
     
-    [switch]$ShowDetailedOutput
+    [switch]$ShowDetailedOutput,
+    
+    [string]$LogPath = "$env:TEMP\storage_audit_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
 )
+
+# Create log file and helper function
+$script:LogPath = $LogPath
+function Write-Log {
+    param(
+        [string]$Message,
+        [string]$Level = "INFO"
+    )
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logMessage = "[$timestamp] [$Level] $Message"
+    Add-Content -Path $script:LogPath -Value $logMessage
+    
+    # Also write to console based on level
+    switch ($Level) {
+        "ERROR" { Write-Host $logMessage -ForegroundColor Red }
+        "WARNING" { Write-Host $logMessage -ForegroundColor Yellow }
+        "SUCCESS" { Write-Host $logMessage -ForegroundColor Green }
+        default { Write-Host $logMessage }
+    }
+}
 
 # Verify PowerShell 7+ for parallel support
 if ($PSVersionTable.PSVersion.Major -lt 7) {
@@ -95,42 +119,51 @@ if ($ThrottleLimit -gt 10) {
 # Cost per GB per month for hot tier (adjust based on region)
 $costPerGBMonth = 0.0184  # UK South pricing as example
 
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "Storage Account Lifecycle Policy Audit" -ForegroundColor Cyan
-Write-Host "(Multi-Threaded Version)" -ForegroundColor Cyan
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "Account: $storageAccount"
-Write-Host "Retention Period: $retentionDays days"
-Write-Host "Parallel Threads: $ThrottleLimit"
-Write-Host "Timeout: $TimeoutMinutes minutes per container"
-Write-Host "Report Date: $(Get-Date)"
+Write-Log "=========================================="
+Write-Log "Storage Account Lifecycle Policy Audit"
+Write-Log "(Multi-Threaded Version - v1.2.0)"
+Write-Log "=========================================="
+Write-Log "Account: $storageAccount"
+Write-Log "Resource Group: $resourceGroup"
+Write-Log "Retention Period: $retentionDays days"
+Write-Log "Parallel Threads: $ThrottleLimit"
+Write-Log "Timeout: $TimeoutMinutes minutes per container"
+Write-Log "Report Date: $(Get-Date)"
+Write-Log "Log File: $LogPath"
 Write-Host ""
 
 # Get storage context
+Write-Log "Connecting to storage account..." -Level "INFO"
 try {
     $storageAccountObj = Get-AzStorageAccount -ResourceGroupName $resourceGroup `
         -Name $storageAccount -ErrorAction Stop
     $ctx = $storageAccountObj.Context
+    Write-Log "Successfully connected to storage account" -Level "SUCCESS"
 }
 catch {
-    Write-Error "Failed to access storage account: $_"
+    Write-Log "Failed to access storage account: $_" -Level "ERROR"
     exit 1
 }
 
 # Get all containers
-Write-Host "Retrieving container list..." -ForegroundColor Yellow
+Write-Log "Retrieving container list..." -Level "INFO"
 $containers = Get-AzStorageContainer -Context $ctx
+Write-Log "Found $($containers.Count) containers" -Level "SUCCESS"
 
 if ($containers.Count -eq 0) {
-    Write-Host "No containers found in storage account." -ForegroundColor Yellow
+    Write-Log "No containers found in storage account." -Level "WARNING"
     exit 0
 }
 
-Write-Host "Found $($containers.Count) containers. Starting parallel analysis..." -ForegroundColor Yellow
+Write-Log "Starting parallel analysis with $ThrottleLimit threads..." -Level "INFO"
+Write-Log "Processing containers - progress will be logged as each completes..." -Level "INFO"
 Write-Host ""
 
 # Track progress
 $script:failedContainers = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
+$script:processedCount = 0
+$script:totalContainers = $containers.Count
+$startTime = Get-Date
 
 # Process containers in parallel
 $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
@@ -143,11 +176,29 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
     $storageAccount = $using:storageAccount
     $TimeoutMinutes = $using:TimeoutMinutes
     $failedContainers = $using:failedContainers
+    $LogPath = $using:LogPath
+    
+    # Thread-safe logging function
+    function Write-ThreadLog {
+        param([string]$Message, [string]$Level = "INFO")
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $logMessage = "[$timestamp] [$Level] $Message"
+        $mutex = New-Object System.Threading.Mutex($false, "StorageAuditLogMutex")
+        try {
+            $mutex.WaitOne() | Out-Null
+            Add-Content -Path $LogPath -Value $logMessage
+        }
+        finally {
+            $mutex.ReleaseMutex()
+        }
+    }
     
     $containerName = $container.Name
+    Write-ThreadLog "Started processing container: $containerName" -Level "INFO"
     
     try {
         # Recreate context within this thread (context objects cannot be serialized across jobs)
+        Write-ThreadLog "Container '$containerName': Establishing connection..." -Level "INFO"
         $ctx = (Get-AzStorageAccount -ResourceGroupName $resourceGroup -Name $storageAccount).Context
         
         # Get all blobs in container with retry logic
@@ -158,24 +209,30 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
         
         while (-not $success -and $retryCount -lt $maxRetries) {
             try {
+                Write-ThreadLog "Container '$containerName': Retrieving blob list (attempt $($retryCount + 1)/$maxRetries)..." -Level "INFO"
                 $blobs = Get-AzStorageBlob -Container $containerName -Context $ctx -ErrorAction Stop
                 $success = $true
+                Write-ThreadLog "Container '$containerName': Retrieved $($blobs.Count) blobs" -Level "INFO"
             }
             catch {
                 $retryCount++
                 if ($retryCount -ge $maxRetries) {
+                    Write-ThreadLog "Container '$containerName': Failed after $maxRetries attempts: $_" -Level "ERROR"
                     throw "Failed to get blobs after $maxRetries attempts: $_"
                 }
-                Write-Warning "Container '$containerName' attempt $retryCount failed, retrying in 5 seconds..."
+                Write-ThreadLog "Container '$containerName': Attempt $retryCount failed, retrying in 5 seconds..." -Level "WARNING"
                 Start-Sleep -Seconds 5
             }
         }
         
         # Skip if container is empty
         if ($null -eq $blobs -or $blobs.Count -eq 0) {
+            Write-ThreadLog "Container '$containerName': Empty container, skipping" -Level "INFO"
             Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Completed: $containerName (empty)" -ForegroundColor Gray
             return $null
         }
+        
+        Write-ThreadLog "Container '$containerName': Analyzing $($blobs.Count) blobs..." -Level "INFO"
         
         # Calculate container totals
         $containerSize = ($blobs | Measure-Object -Property Length -Sum).Sum
@@ -239,11 +296,14 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
         }
         
         # Output completion with timestamp and blob count
+        $completionMsg = "Container '$containerName': COMPLETED - $containerCount blobs, $([math]::Round($containerSize / 1GB, 2)) GB total, $containerDeletionCount blobs to delete ($([math]::Round($containerDeletionSize / 1GB, 2)) GB)"
+        Write-ThreadLog $completionMsg -Level "SUCCESS"
         Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Completed: $containerName ($containerCount blobs, $([math]::Round($containerSize / 1GB, 2)) GB)" -ForegroundColor Green
         
         return $result
     }
     catch {
+        Write-ThreadLog "Container '$containerName': ERROR - $_" -Level "ERROR"
         Write-Warning "Error processing container '$containerName': $_"
         $failedContainers.Add($containerName)
         return $null
@@ -251,13 +311,21 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
 } | Where-Object { $_ -ne $null }
 
 Write-Host ""
+$endTime = Get-Date
+$duration = $endTime - $startTime
+Write-Log "=========================================="
+Write-Log "Parallel processing completed"
+Write-Log "Total duration: $($duration.ToString('hh\:mm\:ss'))"
+Write-Log "Containers processed: $($containerResults.Count) of $($containers.Count)"
+
 if ($failedContainers.Count -gt 0) {
-    Write-Host "WARNING: $($failedContainers.Count) containers failed or timed out:" -ForegroundColor Yellow
-    $failedContainers | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
-    Write-Host ""
+    Write-Log "WARNING: $($failedContainers.Count) containers failed or timed out:" -Level "WARNING"
+    $failedContainers | ForEach-Object { 
+        Write-Log "  Failed: $_" -Level "WARNING"
+    }
 }
 
-Write-Host "Container analysis complete. Calculating totals..." -ForegroundColor Yellow
+Write-Log "Calculating totals..." -Level "INFO"
 
 # Calculate totals from results
 $totalCurrentSize = ($containerResults | Measure-Object -Property _TotalSize -Sum).Sum
@@ -266,38 +334,44 @@ $totalDeletionSize = ($containerResults | Measure-Object -Property _DeletionSize
 $totalDeletionCount = ($containerResults | Measure-Object -Property BlobsToDelete -Sum).Sum
 
 # Display summary
-Write-Host ""
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "SUMMARY REPORT" -ForegroundColor Cyan
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "Total Current Storage:"
-Write-Host "  Containers Analyzed: $($containerResults.Count) of $($containers.Count)"
+Write-Log "=========================================="
+Write-Log "SUMMARY REPORT"
+Write-Log "=========================================="
+Write-Log "Total Current Storage:"
+Write-Log "  Containers Analyzed: $($containerResults.Count) of $($containers.Count)"
 if ($failedContainers.Count -gt 0) {
-    Write-Host "  Containers Failed/Skipped: $($failedContainers.Count)" -ForegroundColor Yellow
+    Write-Log "  Containers Failed/Skipped: $($failedContainers.Count)" -Level "WARNING"
 }
-Write-Host "  Blob Count: $totalCurrentCount"
-Write-Host "  Total Size: $([math]::Round($totalCurrentSize / 1GB, 2)) GB"
-Write-Host ""
-Write-Host "Impact of $retentionDays-Day Retention Policy:" -ForegroundColor Yellow
-Write-Host "  Blobs to be deleted: $totalDeletionCount"
-Write-Host "  Storage to be freed: $([math]::Round($totalDeletionSize / 1GB, 2)) GB"
+Write-Log "  Blob Count: $totalCurrentCount"
+Write-Log "  Total Size: $([math]::Round($totalCurrentSize / 1GB, 2)) GB"
+Write-Log ""
+Write-Log "Impact of $retentionDays-Day Retention Policy:"
+Write-Log "  Blobs to be deleted: $totalDeletionCount"
+Write-Log "  Storage to be freed: $([math]::Round($totalDeletionSize / 1GB, 2)) GB"
 if ($totalCurrentSize -gt 0) {
-    Write-Host "  Percentage of data affected: $([math]::Round(($totalDeletionSize / $totalCurrentSize) * 100, 1))%"
+    Write-Log "  Percentage of data affected: $([math]::Round(($totalDeletionSize / $totalCurrentSize) * 100, 1))%"
 }
-Write-Host ""
-Write-Host "Cost Analysis:" -ForegroundColor Green
+Write-Log ""
 $monthlySavings = ($totalDeletionSize / 1GB) * $costPerGBMonth
-Write-Host "  Estimated Monthly Savings: £$([math]::Round($monthlySavings, 2))"
-Write-Host "  Estimated Annual Savings: £$([math]::Round($monthlySavings * 12, 2))"
-Write-Host ""
+Write-Log "Cost Analysis:" -Level "SUCCESS"
+Write-Log "  Estimated Monthly Savings: £$([math]::Round($monthlySavings, 2))"
+Write-Log "  Estimated Annual Savings: £$([math]::Round($monthlySavings * 12, 2))"
+Write-Log ""
 
 # Display top containers by deletion size
 if ($containerResults.Count -gt 0) {
-    Write-Host "Top 10 Containers by Deletion Size:" -ForegroundColor Yellow
-    $containerResults | 
+    Write-Log "Top 10 Containers by Deletion Size:"
+    $topContainers = $containerResults | 
         Sort-Object SizeToDeleteGB -Descending | 
-        Select-Object -First 10 Container, TotalBlobCount, TotalSizeGB, BlobsToDelete, SizeToDeleteGB, PercentToDelete |
-        Format-Table -AutoSize
+        Select-Object -First 10
+    
+    foreach ($c in $topContainers) {
+        Write-Log "  $($c.Container): $($c.SizeToDeleteGB) GB to delete ($($c.PercentToDelete)%)"
+    }
+    
+    Write-Host ""
+    Write-Host "Top 10 Containers by Deletion Size:" -ForegroundColor Yellow
+    $topContainers | Select-Object Container, TotalBlobCount, TotalSizeGB, BlobsToDelete, SizeToDeleteGB, PercentToDelete | Format-Table -AutoSize
 }
 
 # Export results to CSV
@@ -307,7 +381,7 @@ if ($containerResults.Count -gt 0) {
         BlobsToDelete, SizeToDeleteGB, PercentToDelete, EstMonthlySavings
     
     $exportResults | Export-Csv -Path $exportPath -NoTypeInformation
-    Write-Host "Detailed results exported to: $exportPath" -ForegroundColor Green
+    Write-Log "Detailed results exported to: $exportPath" -Level "SUCCESS"
     
     # Also create summary file
     $summaryPath = $exportPath.Replace('.csv', '_summary.txt')
@@ -346,12 +420,15 @@ $($failedContainers -join "`n")
 "@ })
 "@ | Out-File -FilePath $summaryPath
     
-    Write-Host "Summary report saved to: $summaryPath" -ForegroundColor Green
+    Write-Log "Summary report saved to: $summaryPath" -Level "SUCCESS"
 }
 
-Write-Host ""
-Write-Host "Audit complete!" -ForegroundColor Cyan
-Write-Host "Performance: Processed $($containerResults.Count) of $($containers.Count) containers using $ThrottleLimit parallel threads" -ForegroundColor Green
+Write-Log "=========================================="
+Write-Log "AUDIT COMPLETE!" -Level "SUCCESS"
+Write-Log "Performance: Processed $($containerResults.Count) of $($containers.Count) containers using $ThrottleLimit parallel threads"
+Write-Log "Total execution time: $($duration.ToString('hh\:mm\:ss'))"
+Write-Log "Log file: $LogPath"
 if ($failedContainers.Count -gt 0) {
-    Write-Host "WARNING: $($failedContainers.Count) containers failed or timed out. Consider reducing ThrottleLimit or increasing TimeoutMinutes." -ForegroundColor Yellow
+    Write-Log "WARNING: $($failedContainers.Count) containers failed or timed out. Consider reducing ThrottleLimit or increasing TimeoutMinutes." -Level "WARNING"
 }
+Write-Log "=========================================="
