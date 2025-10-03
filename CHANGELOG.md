@@ -15,6 +15,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automated email reporting
 - Dashboard/visualization support
 
+## [1.1.3] - 2025-10-03
+
+### Fixed
+- **Critical:** Removed undefined `$using:totalContainers` variable reference that was causing "value of the using variable cannot be retrieved because it has not been set in the local session" error
+- Script now properly initializes all variables used in parallel processing blocks
+
+### Technical Details
+- Cleaned up unused variable reference in ForEach-Object -Parallel block
+- Variable was referenced but never defined before parallel execution
+- All remaining `$using:` variable references are now valid and properly initialized
+
+## [1.1.2] - Not Released
+
+### Notes
+- Version skipped to maintain changelog consistency
+
 ## [1.1.1] - 2025-10-03
 
 ### Fixed
@@ -144,7 +160,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Minor version (0.X.0) - New features, backwards compatible
 - Patch version (0.0.X) - Bug fixes, backwards compatible
 
-[Unreleased]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.1...v1.1.3
 [1.1.1]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/releases/tag/v1.0.0

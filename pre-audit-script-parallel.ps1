@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Azure Storage Lifecycle Policy - Pre-Implementation Audit Script (Multi-Threaded Version)
-    Version: 1.1.1
+    Version: 1.1.3
     
     REQUIREMENTS:
     - PowerShell 7.0 or higher (REQUIRED for parallel processing)
@@ -141,7 +141,6 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
     $ShowDetailedOutput = $using:ShowDetailedOutput
     $resourceGroup = $using:resourceGroup
     $storageAccount = $using:storageAccount
-    $totalContainers = $using:totalContainers
     $TimeoutMinutes = $using:TimeoutMinutes
     $failedContainers = $using:failedContainers
     
