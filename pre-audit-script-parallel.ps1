@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Azure Storage Lifecycle Policy - Pre-Implementation Audit Script (Multi-Threaded Version)
-    Version: 1.4.0
+    Version: 1.4.2
     
     REQUIREMENTS:
     - PowerShell 7.0 or higher (REQUIRED for parallel processing)
@@ -267,7 +267,7 @@ $costPerGBMonth = 0.0184  # UK South pricing as example
 
 Write-Log "=========================================="
 Write-Log "Storage Account Lifecycle Policy Audit"
-Write-Log "(Multi-Threaded Version - v1.4.0 with Token Refresh)"
+Write-Log "(Multi-Threaded Version - v1.4.2)"
 Write-Log "=========================================="
 Write-Log "Account: $storageAccount"
 Write-Log "Resource Group: $resourceGroup"
@@ -397,6 +397,7 @@ $progressData = @{
     ResourceGroup = $resourceGroup
     RetentionDays = $retentionDays
     StartTime = (Get-Date).ToString('o')
+    LastUpdate = (Get-Date).ToString('o')
     CompletedContainers = @($completedContainers.Keys)
 }
 $progressData | ConvertTo-Json | Set-Content $progressFilePath
@@ -610,10 +611,17 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
             
             # Update progress file
             $completedContainersBag.Add($containerName)
-            $progressData = Get-Content $progressFilePath | ConvertFrom-Json
-            $progressData.CompletedContainers = @($progressData.CompletedContainers) + @($containerName)
-            $progressData.LastUpdate = (Get-Date).ToString('o')
-            $progressData | ConvertTo-Json | Set-Content $progressFilePath
+            $currentProgress = Get-Content $progressFilePath | ConvertFrom-Json
+            $updatedProgress = @{
+                Timestamp = $currentProgress.Timestamp
+                StorageAccount = $currentProgress.StorageAccount
+                ResourceGroup = $currentProgress.ResourceGroup
+                RetentionDays = $currentProgress.RetentionDays
+                StartTime = $currentProgress.StartTime
+                LastUpdate = (Get-Date).ToString('o')
+                CompletedContainers = @($currentProgress.CompletedContainers) + @($containerName)
+            }
+            $updatedProgress | ConvertTo-Json | Set-Content $progressFilePath
         }
         finally {
             $mutex.ReleaseMutex()

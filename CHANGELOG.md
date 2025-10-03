@@ -15,6 +15,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automated email reporting
 - Dashboard/visualization support
 
+## [1.4.2] - 2025-10-03
+
+### Fixed
+- **Critical:** Fixed "LastUpdate property cannot be found" error in progress file updates
+- Progress tracking now properly initializes LastUpdate field in initial progress data structure
+- Progress file updates now reconstruct the entire structure instead of attempting to add properties dynamically
+- Improved thread-safe progress file handling to prevent corruption
+
+### Technical Details
+- Initial progress data now includes LastUpdate field set to current timestamp
+- Progress file update logic in parallel threads now creates a new hashtable with all required fields
+- Ensures compatibility when resuming from older progress files that may not have all fields
+
+### Changes
+- Updated parallel script to v1.4.2
+- Improved error handling for progress file operations
+
+## [1.4.1] - 2025-10-03
+
+### Fixed
+- Fixed string interpolation parsing error in `Invoke-WithTokenRefresh` function
+- Resolved "Variable reference is not valid" error that prevented script execution
+
+### Changed
+- Modified token refresh logging to use variable assignment before passing to Write-Log
+- Improved error message formatting in token refresh operations
+
 ## [1.4.0] - 2025-10-03
 
 ### Added
