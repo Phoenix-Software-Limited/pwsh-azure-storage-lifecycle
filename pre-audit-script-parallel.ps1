@@ -130,8 +130,6 @@ Write-Host "Found $($containers.Count) containers. Starting parallel analysis...
 Write-Host ""
 
 # Track progress
-$script:processedCount = 0
-$script:totalContainers = $containers.Count
 $script:failedContainers = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
 
 # Process containers in parallel
@@ -143,7 +141,6 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
     $ShowDetailedOutput = $using:ShowDetailedOutput
     $resourceGroup = $using:resourceGroup
     $storageAccount = $using:storageAccount
-    $processedCount = $using:processedCount
     $totalContainers = $using:totalContainers
     $TimeoutMinutes = $using:TimeoutMinutes
     $failedContainers = $using:failedContainers
@@ -177,9 +174,7 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
         
         # Skip if container is empty
         if ($null -eq $blobs -or $blobs.Count -eq 0) {
-            $null = ([ref]$processedCount).Value++
-            $percent = [math]::Round((([ref]$processedCount).Value / $totalContainers) * 100, 0)
-            Write-Host "Progress: $percent% ($($([ref]$processedCount).Value)/$totalContainers) - Completed: $containerName (empty)" -ForegroundColor Gray
+            Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Completed: $containerName (empty)" -ForegroundColor Gray
             return $null
         }
         
@@ -244,10 +239,8 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
             Write-Host "    Size to delete: $([math]::Round($containerDeletionSize / 1GB, 2)) GB"
         }
         
-        # Update progress counter
-        $null = ([ref]$processedCount).Value++
-        $percent = [math]::Round((([ref]$processedCount).Value / $totalContainers) * 100, 0)
-        Write-Host "Progress: $percent% ($($([ref]$processedCount).Value)/$totalContainers) - Completed: $containerName" -ForegroundColor Gray
+        # Output completion with timestamp and blob count
+        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Completed: $containerName ($containerCount blobs, $([math]::Round($containerSize / 1GB, 2)) GB)" -ForegroundColor Green
         
         return $result
     }
