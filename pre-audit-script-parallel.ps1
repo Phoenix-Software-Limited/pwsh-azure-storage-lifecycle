@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Azure Storage Lifecycle Policy - Pre-Implementation Audit Script (Multi-Threaded Version)
-    Version: 1.2.0
+    Version: 1.4.0
     
     REQUIREMENTS:
     - PowerShell 7.0 or higher (REQUIRED for parallel processing)
@@ -58,6 +58,8 @@
     Display detailed output for each container (default: false for cleaner output in parallel mode)
 .PARAMETER LogPath
     Path to log file for detailed progress tracking (optional, auto-generated if not specified)
+.PARAMETER Resume
+    Resume from a previous incomplete run using the progress tracking file
 #>
 
 param(
@@ -79,8 +81,40 @@ param(
     
     [switch]$ShowDetailedOutput,
     
-    [string]$LogPath = "$env:TEMP\storage_audit_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    [string]$LogPath = "$env:TEMP\storage_audit_$(Get-Date -Format 'yyyyMMdd_HHmmss').log",
+    
+    [switch]$Resume
 )
+
+# Generate consistent file names for resume capability
+$timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+$baseFileName = "storage_audit_${storageAccount}_${timestamp}"
+
+# Override paths if resuming
+if ($Resume) {
+    # Find the most recent progress file for this storage account
+    $progressFiles = Get-ChildItem -Path $env:TEMP -Filter "storage_audit_${storageAccount}_*_progress.json" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending
+    
+    if ($progressFiles -and $progressFiles.Count -gt 0) {
+        $progressFile = $progressFiles[0].FullName
+        $progressData = Get-Content $progressFile | ConvertFrom-Json
+        $baseFileName = [System.IO.Path]::GetFileNameWithoutExtension($progressFile).Replace('_progress', '')
+        $timestamp = $progressData.Timestamp
+        Write-Host "Resuming from previous run: $baseFileName" -ForegroundColor Cyan
+    }
+    else {
+        Write-Warning "No previous run found for storage account '$storageAccount'. Starting fresh."
+        $Resume = $false
+    }
+}
+
+# Set file paths
+if (-not $LogPath.Contains($storageAccount)) {
+    $LogPath = "$env:TEMP\${baseFileName}.log"
+}
+$exportPath = "$env:TEMP\${baseFileName}.csv"
+$progressFilePath = "$env:TEMP\${baseFileName}_progress.json"
 
 # Create log file and helper function
 $script:LogPath = $LogPath
@@ -99,6 +133,116 @@ function Write-Log {
         "WARNING" { Write-Host $logMessage -ForegroundColor Yellow }
         "SUCCESS" { Write-Host $logMessage -ForegroundColor Green }
         default { Write-Host $logMessage }
+    }
+}
+
+# Token refresh helper function
+function Test-AzureTokenExpiration {
+    <#
+    .SYNOPSIS
+    Checks if Azure token is about to expire
+    .DESCRIPTION
+    Returns true if token will expire within the next 5 minutes
+    #>
+    param(
+        [int]$WarningMinutes = 5
+    )
+    
+    try {
+        $context = Get-AzContext
+        if (-not $context) {
+            Write-Log "No Azure context found" -Level "WARNING"
+            return $true
+        }
+        
+        # Get token expiration
+        $token = Get-AzAccessToken -ErrorAction Stop
+        $expiresOn = $token.ExpiresOn.LocalDateTime
+        $timeUntilExpiry = $expiresOn - (Get-Date)
+        
+        if ($timeUntilExpiry.TotalMinutes -le $WarningMinutes) {
+            Write-Log "Token expires in $([math]::Round($timeUntilExpiry.TotalMinutes, 1)) minutes" -Level "WARNING"
+            return $true
+        }
+        
+        return $false
+    }
+    catch {
+        Write-Log "Error checking token expiration: $_" -Level "WARNING"
+        return $true
+    }
+}
+
+function Update-AzureToken {
+    <#
+    .SYNOPSIS
+    Refreshes Azure authentication token
+    .DESCRIPTION
+    Attempts to refresh the current Azure session without re-prompting for credentials
+    #>
+    try {
+        $context = Get-AzContext
+        if (-not $context) {
+            Write-Log "No Azure context to refresh. Please run Connect-AzAccount" -Level "ERROR"
+            throw "No Azure context found"
+        }
+        
+        Write-Log "Refreshing Azure token..." -Level "INFO"
+        
+        # Store context details
+        $tenantId = $context.Tenant.Id
+        $subscriptionId = $context.Subscription.Id
+        $accountId = $context.Account.Id
+        
+        # Attempt silent token refresh by getting a new access token
+        $token = Get-AzAccessToken -ErrorAction Stop
+        
+        # Verify the refresh worked
+        $newContext = Get-AzContext
+        if ($newContext -and $newContext.Subscription.Id -eq $subscriptionId) {
+            Write-Log "Token refreshed successfully. Account: $accountId, Subscription: $subscriptionId" -Level "SUCCESS"
+            return $true
+        }
+        else {
+            Write-Log "Token refresh verification failed" -Level "WARNING"
+            return $false
+        }
+    }
+    catch {
+        Write-Log "Failed to refresh token: $_" -Level "ERROR"
+        Write-Log "You may need to run Connect-AzAccount again" -Level "WARNING"
+        return $false
+    }
+}
+
+function Invoke-WithTokenRefresh {
+    <#
+    .SYNOPSIS
+    Executes a script block with automatic token refresh if needed
+    .DESCRIPTION
+    Checks token expiration before execution and refreshes if necessary
+    #>
+    param(
+        [Parameter(Mandatory=$true)]
+        [scriptblock]$ScriptBlock,
+        [string]$OperationName = "Operation"
+    )
+    
+    # Check if token needs refresh
+    if (Test-AzureTokenExpiration) {
+        Write-Log "$OperationName: Token refresh needed" -Level "INFO"
+        if (-not (Update-AzureToken)) {
+            throw "Failed to refresh Azure token. Please run Connect-AzAccount again."
+        }
+    }
+    
+    # Execute the script block
+    try {
+        & $ScriptBlock
+    }
+    catch {
+        Write-Log "$OperationName failed: $_" -Level "ERROR"
+        throw
     }
 }
 
@@ -121,7 +265,7 @@ $costPerGBMonth = 0.0184  # UK South pricing as example
 
 Write-Log "=========================================="
 Write-Log "Storage Account Lifecycle Policy Audit"
-Write-Log "(Multi-Threaded Version - v1.2.0)"
+Write-Log "(Multi-Threaded Version - v1.4.0 with Token Refresh)"
 Write-Log "=========================================="
 Write-Log "Account: $storageAccount"
 Write-Log "Resource Group: $resourceGroup"
@@ -129,15 +273,53 @@ Write-Log "Retention Period: $retentionDays days"
 Write-Log "Parallel Threads: $ThrottleLimit"
 Write-Log "Timeout: $TimeoutMinutes minutes per container"
 Write-Log "Report Date: $(Get-Date)"
+Write-Log "Resume Mode: $(if ($Resume) { 'YES' } else { 'NO' })"
 Write-Log "Log File: $LogPath"
+Write-Log "CSV Output: $exportPath"
+Write-Log "Progress File: $progressFilePath"
 Write-Host ""
 
-# Get storage context
+# Verify Azure connection and token validity
+Write-Log "Verifying Azure connection..." -Level "INFO"
+try {
+    $context = Get-AzContext
+    if (-not $context) {
+        Write-Log "No Azure context found. Please run Connect-AzAccount first." -Level "ERROR"
+        exit 1
+    }
+    
+    # Check token expiration and refresh if needed
+    $token = Get-AzAccessToken -ErrorAction Stop
+    $expiresOn = $token.ExpiresOn.LocalDateTime
+    $timeUntilExpiry = $expiresOn - (Get-Date)
+    
+    Write-Log "Connected as: $($context.Account.Id)" -Level "SUCCESS"
+    Write-Log "Subscription: $($context.Subscription.Name) ($($context.Subscription.Id))" -Level "INFO"
+    Write-Log "Token valid for: $([math]::Round($timeUntilExpiry.TotalMinutes, 1)) minutes" -Level "INFO"
+    
+    if ($timeUntilExpiry.TotalMinutes -le 5) {
+        Write-Log "Token is about to expire, refreshing..." -Level "WARNING"
+        if (-not (Update-AzureToken)) {
+            Write-Log "Failed to refresh token. Please run Connect-AzAccount again." -Level "ERROR"
+            exit 1
+        }
+    }
+}
+catch {
+    Write-Log "Azure authentication check failed: $_" -Level "ERROR"
+    Write-Log "Please run Connect-AzAccount to authenticate." -Level "ERROR"
+    exit 1
+}
+
+# Get storage context with token refresh
 Write-Log "Connecting to storage account..." -Level "INFO"
 try {
-    $storageAccountObj = Get-AzStorageAccount -ResourceGroupName $resourceGroup `
-        -Name $storageAccount -ErrorAction Stop
-    $ctx = $storageAccountObj.Context
+    Invoke-WithTokenRefresh -ScriptBlock {
+        $script:storageAccountObj = Get-AzStorageAccount -ResourceGroupName $resourceGroup `
+            -Name $storageAccount -ErrorAction Stop
+        $script:ctx = $script:storageAccountObj.Context
+    } -OperationName "Storage Account Connection"
+    
     Write-Log "Successfully connected to storage account" -Level "SUCCESS"
 }
 catch {
@@ -145,25 +327,95 @@ catch {
     exit 1
 }
 
-# Get all containers
+# Get all containers with token refresh
 Write-Log "Retrieving container list..." -Level "INFO"
-$containers = Get-AzStorageContainer -Context $ctx
-Write-Log "Found $($containers.Count) containers" -Level "SUCCESS"
+try {
+    Invoke-WithTokenRefresh -ScriptBlock {
+        $script:containers = Get-AzStorageContainer -Context $ctx
+    } -OperationName "Container List Retrieval"
+    
+    Write-Log "Found $($containers.Count) containers" -Level "SUCCESS"
+}
+catch {
+    Write-Log "Failed to retrieve containers: $_" -Level "ERROR"
+    exit 1
+}
 
 if ($containers.Count -eq 0) {
     Write-Log "No containers found in storage account." -Level "WARNING"
     exit 0
 }
 
+# Load progress data if resuming
+$completedContainers = @{}
+$processedResults = @()
+
+if ($Resume -and (Test-Path $progressFilePath)) {
+    Write-Log "Loading progress from previous run..." -Level "INFO"
+    $progressData = Get-Content $progressFilePath | ConvertFrom-Json
+    $completedContainers = @{}
+    $progressData.CompletedContainers | ForEach-Object { $completedContainers[$_] = $true }
+    
+    Write-Log "Previously completed: $($completedContainers.Count) containers" -Level "SUCCESS"
+    
+    # Load existing CSV results
+    if (Test-Path $exportPath) {
+        $processedResults = Import-Csv $exportPath | ForEach-Object {
+            [PSCustomObject]@{
+                Container = $_.Container
+                TotalBlobCount = [int]$_.TotalBlobCount
+                TotalSizeGB = [double]$_.TotalSizeGB
+                BlobsToDelete = [int]$_.BlobsToDelete
+                SizeToDeleteGB = [double]$_.SizeToDeleteGB
+                PercentToDelete = [double]$_.PercentToDelete
+                EstMonthlySavings = [double]$_.EstMonthlySavings
+                _TotalSize = [double]$_.TotalSizeGB * 1GB
+                _DeletionSize = [double]$_.SizeToDeleteGB * 1GB
+                _AgeGroups = $null
+            }
+        }
+        Write-Log "Loaded $($processedResults.Count) previously processed results" -Level "SUCCESS"
+    }
+    
+    # Filter to unprocessed containers
+    $containers = $containers | Where-Object { -not $completedContainers.ContainsKey($_.Name) }
+    Write-Log "Remaining to process: $($containers.Count) containers" -Level "INFO"
+    
+    if ($containers.Count -eq 0) {
+        Write-Log "All containers already processed!" -Level "SUCCESS"
+        Write-Log "Use existing results at: $exportPath" -Level "SUCCESS"
+        exit 0
+    }
+}
+
+# Initialize progress tracking
+$progressData = @{
+    Timestamp = $timestamp
+    StorageAccount = $storageAccount
+    ResourceGroup = $resourceGroup
+    RetentionDays = $retentionDays
+    StartTime = (Get-Date).ToString('o')
+    CompletedContainers = @($completedContainers.Keys)
+}
+$progressData | ConvertTo-Json | Set-Content $progressFilePath
+
 Write-Log "Starting parallel analysis with $ThrottleLimit threads..." -Level "INFO"
 Write-Log "Processing containers - progress will be logged as each completes..." -Level "INFO"
+Write-Log "Results saved incrementally to: $exportPath" -Level "INFO"
 Write-Host ""
 
 # Track progress
 $script:failedContainers = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
+$script:completedContainers = [System.Collections.Concurrent.ConcurrentBag[string]]::new()
 $script:processedCount = 0
 $script:totalContainers = $containers.Count
 $startTime = Get-Date
+
+# Create CSV header if new file
+if (-not (Test-Path $exportPath) -or -not $Resume) {
+    "Container,TotalBlobCount,TotalSizeGB,BlobsToDelete,SizeToDeleteGB,PercentToDelete,EstMonthlySavings" | 
+        Set-Content $exportPath
+}
 
 # Process containers in parallel
 $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -Parallel {
@@ -176,7 +428,10 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
     $storageAccount = $using:storageAccount
     $TimeoutMinutes = $using:TimeoutMinutes
     $failedContainers = $using:failedContainers
+    $completedContainersBag = $using:completedContainers
     $LogPath = $using:LogPath
+    $exportPath = $using:exportPath
+    $progressFilePath = $using:progressFilePath
     
     # Thread-safe logging function
     function Write-ThreadLog {
@@ -193,10 +448,54 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
         }
     }
     
+    # Thread-safe token refresh function
+    function Test-ThreadTokenExpiration {
+        param([int]$WarningMinutes = 5)
+        try {
+            $context = Get-AzContext
+            if (-not $context) { return $true }
+            
+            $token = Get-AzAccessToken -ErrorAction Stop
+            $expiresOn = $token.ExpiresOn.LocalDateTime
+            $timeUntilExpiry = $expiresOn - (Get-Date)
+            
+            return ($timeUntilExpiry.TotalMinutes -le $WarningMinutes)
+        }
+        catch {
+            return $true
+        }
+    }
+    
+    function Update-ThreadToken {
+        try {
+            $context = Get-AzContext
+            if (-not $context) { throw "No Azure context found" }
+            
+            # Attempt silent token refresh
+            $token = Get-AzAccessToken -ErrorAction Stop
+            
+            # Verify refresh
+            $newContext = Get-AzContext
+            return ($newContext -and $newContext.Subscription.Id -eq $context.Subscription.Id)
+        }
+        catch {
+            return $false
+        }
+    }
+    
     $containerName = $container.Name
     Write-ThreadLog "Started processing container: $containerName" -Level "INFO"
     
     try {
+        # Check and refresh token if needed before establishing connection
+        if (Test-ThreadTokenExpiration) {
+            Write-ThreadLog "Container '$containerName': Token refresh needed" -Level "WARNING"
+            if (-not (Update-ThreadToken)) {
+                throw "Failed to refresh Azure token for thread"
+            }
+            Write-ThreadLog "Container '$containerName': Token refreshed successfully" -Level "SUCCESS"
+        }
+        
         # Recreate context within this thread (context objects cannot be serialized across jobs)
         Write-ThreadLog "Container '$containerName': Establishing connection..." -Level "INFO"
         $ctx = (Get-AzStorageAccount -ResourceGroupName $resourceGroup -Name $storageAccount).Context
@@ -300,6 +599,26 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
         Write-ThreadLog $completionMsg -Level "SUCCESS"
         Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Completed: $containerName ($containerCount blobs, $([math]::Round($containerSize / 1GB, 2)) GB)" -ForegroundColor Green
         
+        # Save result immediately to CSV (thread-safe with mutex)
+        $csvLine = "$containerName,$containerCount,$([math]::Round($containerSize / 1GB, 2)),$containerDeletionCount,$([math]::Round($containerDeletionSize / 1GB, 2)),$($result.PercentToDelete),$($result.EstMonthlySavings)"
+        $mutex = New-Object System.Threading.Mutex($false, "StorageAuditCSVMutex")
+        try {
+            $mutex.WaitOne() | Out-Null
+            Add-Content -Path $exportPath -Value $csvLine
+            
+            # Update progress file
+            $completedContainersBag.Add($containerName)
+            $progressData = Get-Content $progressFilePath | ConvertFrom-Json
+            $progressData.CompletedContainers = @($progressData.CompletedContainers) + @($containerName)
+            $progressData.LastUpdate = (Get-Date).ToString('o')
+            $progressData | ConvertTo-Json | Set-Content $progressFilePath
+        }
+        finally {
+            $mutex.ReleaseMutex()
+        }
+        
+        Write-ThreadLog "Container '$containerName': Result saved to CSV" -Level "INFO"
+        
         return $result
     }
     catch {
@@ -309,6 +628,12 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
         return $null
     }
 } | Where-Object { $_ -ne $null }
+
+# Combine with previously processed results if resuming
+if ($Resume -and $processedResults.Count -gt 0) {
+    Write-Log "Combining new results with $($processedResults.Count) previous results..." -Level "INFO"
+    $containerResults = @($processedResults) + @($containerResults)
+}
 
 Write-Host ""
 $endTime = Get-Date
@@ -374,14 +699,15 @@ if ($containerResults.Count -gt 0) {
     $topContainers | Select-Object Container, TotalBlobCount, TotalSizeGB, BlobsToDelete, SizeToDeleteGB, PercentToDelete | Format-Table -AutoSize
 }
 
-# Export results to CSV
+# Export results to CSV (final consolidated version)
 if ($containerResults.Count -gt 0) {
     # Remove internal fields before export
     $exportResults = $containerResults | Select-Object -Property Container, TotalBlobCount, TotalSizeGB, 
         BlobsToDelete, SizeToDeleteGB, PercentToDelete, EstMonthlySavings
     
-    $exportResults | Export-Csv -Path $exportPath -NoTypeInformation
-    Write-Log "Detailed results exported to: $exportPath" -Level "SUCCESS"
+    # Overwrite with complete sorted results
+    $exportResults | Sort-Object Container | Export-Csv -Path $exportPath -NoTypeInformation
+    Write-Log "Final consolidated results exported to: $exportPath" -Level "SUCCESS"
     
     # Also create summary file
     $summaryPath = $exportPath.Replace('.csv', '_summary.txt')
@@ -425,10 +751,21 @@ $($failedContainers -join "`n")
 
 Write-Log "=========================================="
 Write-Log "AUDIT COMPLETE!" -Level "SUCCESS"
-Write-Log "Performance: Processed $($containerResults.Count) of $($containers.Count) containers using $ThrottleLimit parallel threads"
+if ($Resume) {
+    Write-Log "Processed $(if ($containers.Count -gt 0) { $containers.Count } else { 0 }) additional containers in this run"
+    Write-Log "Total containers in final report: $($containerResults.Count)"
+}
+else {
+    Write-Log "Performance: Processed $($containerResults.Count) of $($containers.Count + $processedResults.Count) containers using $ThrottleLimit parallel threads"
+}
 Write-Log "Total execution time: $($duration.ToString('hh\:mm\:ss'))"
 Write-Log "Log file: $LogPath"
+Write-Log "CSV Results: $exportPath"
+Write-Log "Progress File: $progressFilePath"
 if ($failedContainers.Count -gt 0) {
-    Write-Log "WARNING: $($failedContainers.Count) containers failed or timed out. Consider reducing ThrottleLimit or increasing TimeoutMinutes." -Level "WARNING"
+    Write-Log "WARNING: $($failedContainers.Count) containers failed or timed out. You can resume with -Resume parameter" -Level "WARNING"
+}
+else {
+    Write-Log "TIP: Progress file can be deleted now that all containers completed successfully" -Level "SUCCESS"
 }
 Write-Log "=========================================="

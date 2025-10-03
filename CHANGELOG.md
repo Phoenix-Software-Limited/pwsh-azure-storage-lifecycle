@@ -15,6 +15,142 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automated email reporting
 - Dashboard/visualization support
 
+## [1.4.0] - 2025-10-03
+
+### Added
+- **Automatic token refresh** - Prevents Azure token expiration during long-running operations
+- **Token expiration monitoring** - Checks token validity before critical operations
+- **Thread-safe token refresh** - Each parallel thread can independently refresh its token
+- **Token status logging** - Displays initial token validity duration and refresh events
+- Three new helper functions: `Test-AzureTokenExpiration`, `Update-AzureToken`, and `Invoke-WithTokenRefresh`
+- Azure connection verification on startup with account and subscription details
+- Token refresh logic integrated into main thread operations
+- Independent token refresh capability in each parallel processing thread
+
+### Changed
+- Initial Azure connection now validates token expiration (5-minute warning threshold)
+- Storage account connection wrapped with automatic token refresh
+- Container list retrieval wrapped with automatic token refresh
+- Each parallel thread checks and refreshes token before establishing connection
+- Enhanced startup logging to show connected account, subscription, and token validity
+
+### Fixed
+- **Critical:** Script no longer fails after ~60 minutes due to Azure AD token expiration
+- **Critical:** Resume functionality now works reliably after extended breaks
+- Eliminated "token has expired" errors during long-running scans
+- Fixed authentication failures in parallel threads during extended operations
+- Improved reliability for storage accounts with hundreds of containers
+
+### Performance
+- Long-running operations (>1 hour) now complete without interruption
+- Resume operations work reliably regardless of time between runs
+- No need to re-authenticate manually during extended processing
+
+### Security
+- Token refresh attempts silent renewal without prompting for credentials
+- Falls back gracefully if token refresh fails with clear error messages
+- Maintains same security posture as Connect-AzAccount
+
+### Technical Details
+- Token expiration checked with 5-minute warning threshold
+- Uses `Get-AzAccessToken` to check token validity and trigger refresh
+- Token refresh verified by comparing subscription IDs before/after refresh
+- Thread-safe token functions use isolated context per parallel thread
+- Wrapper function `Invoke-WithTokenRefresh` simplifies token-aware operations
+
+### Storage Account Permissions Required
+The script requires one of the following RBAC roles on the storage account:
+- **Storage Blob Data Reader** (Recommended - Least Privilege)
+- Reader + Storage Blob Data Reader (combination)
+- Storage Account Contributor (excessive - not recommended)
+
+Specific permissions needed:
+- `Microsoft.Storage/storageAccounts/read`
+- `Microsoft.Storage/storageAccounts/blobServices/containers/read`
+- `Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read`
+
+Note: The script is read-only and does not require Storage Account Keys access.
+
+### Usage
+The token refresh is automatic and requires no parameter changes:
+```powershell
+# Same usage as before - token refresh happens automatically
+.\pre-audit-script-parallel.ps1 -resourceGroup "rg" -storageAccount "storage" -retentionDays 90
+```
+
+**Token Status Logging:**
+```
+[INFO] Verifying Azure connection...
+[SUCCESS] Connected as: user@domain.com
+[INFO] Subscription: Production (abc-123-def)
+[INFO] Token valid for: 58.3 minutes
+```
+
+**Automatic Refresh:**
+```
+[WARNING] Token expires in 4.2 minutes
+[INFO] Refreshing Azure token...
+[SUCCESS] Token refreshed successfully
+```
+
+## [1.3.0] - 2025-10-03
+
+### Added
+- **Incremental result saving** - Results now saved to CSV after each container completes
+- **Resume functionality** - Use `-Resume` parameter to continue from where script stopped
+- **Progress tracking file** - JSON file tracks completed containers for crash recovery
+- **Automatic resume detection** - Script finds most recent progress file for the storage account
+- **Crash recovery** - No more lost progress if script hangs, crashes, or is interrupted
+- **Real-time CSV updates** - CSV file updates as each container completes (can be opened while running)
+- **Thread-safe file operations** - Mutex-protected writes prevent corruption in parallel mode
+
+### Changed
+- Both parallel and sequential scripts now support incremental saving and resume
+- File naming includes storage account name for easy identification
+- Progress files automatically created in temp directory
+- CSV results available immediately, even if script doesn't complete
+- Log files and progress files use consistent naming scheme
+
+### Fixed
+- **Critical:** Scripts can now recover from crashes, hangs, or interruptions
+- **Critical:** No more complete loss of data if script fails mid-execution
+- Lost hours of processing can now be recovered with `-Resume`
+- Prevents re-processing containers that already completed successfully
+
+### Usage
+**First run:**
+```powershell
+.\pre-audit-script-parallel.ps1 -resourceGroup "rg" -storageAccount "storage" -retentionDays 90
+```
+
+**If it crashes/hangs/stops:**
+```powershell
+.\pre-audit-script-parallel.ps1 -resourceGroup "rg" -storageAccount "storage" -retentionDays 90 -Resume
+```
+
+**Monitor progress in real-time:**
+- Open the CSV file in Excel/text editor while script runs
+- Tail the log file: `Get-Content "path\to\log.log" -Wait -Tail 20`
+- Check progress file to see which containers are complete
+
+### Performance
+- Eliminates wasted time re-processing containers after failures
+- Large storage accounts (100+ containers) can be processed across multiple runs
+- Incremental saves ensure partial results are never lost
+- Resume functionality makes script much more robust for production use
+
+### Technical Details
+- Progress tracked in JSON file: `storage_audit_{account}_{timestamp}_progress.json`
+- CSV file updated incrementally using thread-safe mutex locks
+- Resume mode loads previous CSV and progress file automatically
+- Completed containers stored in hashtable for O(1) lookup
+- Progress file updated after each container completion
+- File paths use storage account name for multi-account safety
+
+### Breaking Changes
+- None - all new features are opt-in via `-Resume` parameter
+- Existing scripts continue to work without modification
+
 ## [1.2.0] - 2025-10-03
 
 ### Added
@@ -202,7 +338,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Minor version (0.X.0) - New features, backwards compatible
 - Patch version (0.0.X) - Bug fixes, backwards compatible
 
-[Unreleased]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.1...v1.1.3
 [1.1.1]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.0...v1.1.1
