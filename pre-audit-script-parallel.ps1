@@ -101,10 +101,12 @@ if ($Resume) {
     
     # If user provided export path, also search there
     if ($userProvidedExportPath) {
-        $customExportDir = [System.IO.Path]::GetDirectoryName($exportPath.TrimEnd('\'))
-        if ([string]::IsNullOrEmpty([System.IO.Path]::GetFileName($exportPath.TrimEnd('\')))) {
+        # Clean path first before processing
+        $cleanedExportPath = $exportPath.TrimEnd('\', '"', "'")
+        $customExportDir = [System.IO.Path]::GetDirectoryName($cleanedExportPath)
+        if ([string]::IsNullOrEmpty([System.IO.Path]::GetFileName($cleanedExportPath))) {
             # It's a directory path
-            $customExportDir = $exportPath.TrimEnd('\')
+            $customExportDir = $cleanedExportPath
         }
         if (-not [string]::IsNullOrEmpty($customExportDir) -and (Test-Path $customExportDir)) {
             $searchPaths += $customExportDir
@@ -137,23 +139,40 @@ if (-not $userProvidedLogPath) {
     $LogPath = "$env:TEMP\${baseFileName}.log"
 }
 else {
-    # Remove trailing backslashes that can cause quote escaping issues
-    $LogPath = $LogPath.TrimEnd('\')
+    # Clean up path: remove trailing backslashes and any stray quotes from escaping issues
+    $LogPath = $LogPath.TrimEnd('\', '"', "'")
+    
+    # If user provided a directory path, append default filename
+    if (Test-Path -Path $LogPath -PathType Container) {
+        $LogPath = Join-Path $LogPath "${baseFileName}.log"
+    }
+    elseif ([string]::IsNullOrEmpty([System.IO.Path]::GetFileName($LogPath))) {
+        # Path has no filename component - it's a directory
+        $LogPath = Join-Path $LogPath "${baseFileName}.log"
+    }
+    elseif ([string]::IsNullOrEmpty([System.IO.Path]::GetExtension($LogPath))) {
+        # No file extension - assume it's a directory path
+        $LogPath = Join-Path $LogPath "${baseFileName}.log"
+    }
 }
 
 if (-not $userProvidedExportPath) {
     $exportPath = "$env:TEMP\${baseFileName}.csv"
 }
 else {
-    # Remove trailing backslashes that can cause quote escaping issues
-    $exportPath = $exportPath.TrimEnd('\')
+    # Clean up path: remove trailing backslashes and any stray quotes from escaping issues
+    $exportPath = $exportPath.TrimEnd('\', '"', "'")
     
     # If user provided a directory path, append default filename
     if (Test-Path -Path $exportPath -PathType Container) {
         $exportPath = Join-Path $exportPath "${baseFileName}.csv"
     }
     elseif ([string]::IsNullOrEmpty([System.IO.Path]::GetFileName($exportPath))) {
-        # Path ends with backslash but doesn't exist yet - it's a directory
+        # Path has no filename component - it's a directory
+        $exportPath = Join-Path $exportPath "${baseFileName}.csv"
+    }
+    elseif ([string]::IsNullOrEmpty([System.IO.Path]::GetExtension($exportPath))) {
+        # No file extension - assume it's a directory path  
         $exportPath = Join-Path $exportPath "${baseFileName}.csv"
     }
 }
@@ -246,12 +265,11 @@ function Update-AzureToken {
         Write-Log "Refreshing Azure token..." -Level "INFO"
         
         # Store context details
-        $tenantId = $context.Tenant.Id
         $subscriptionId = $context.Subscription.Id
         $accountId = $context.Account.Id
         
         # Attempt silent token refresh by getting a new access token
-        $token = Get-AzAccessToken -ErrorAction Stop
+        Get-AzAccessToken -ErrorAction Stop | Out-Null
         
         # Verify the refresh worked
         $newContext = Get-AzContext
@@ -531,7 +549,7 @@ $containerResults = $containers | ForEach-Object -ThrottleLimit $ThrottleLimit -
             if (-not $context) { throw "No Azure context found" }
             
             # Attempt silent token refresh
-            $token = Get-AzAccessToken -ErrorAction Stop
+            Get-AzAccessToken -ErrorAction Stop | Out-Null
             
             # Verify refresh
             $newContext = Get-AzContext

@@ -79,10 +79,12 @@
        
        # If user provided export path, also search there
        if ($userProvidedExportPath) {
-           $customExportDir = [System.IO.Path]::GetDirectoryName($exportPath.TrimEnd('\'))
-           if ([string]::IsNullOrEmpty([System.IO.Path]::GetFileName($exportPath.TrimEnd('\')))) {
+           # Clean path first before processing
+           $cleanedExportPath = $exportPath.TrimEnd('\', '"', "'")
+           $customExportDir = [System.IO.Path]::GetDirectoryName($cleanedExportPath)
+           if ([string]::IsNullOrEmpty([System.IO.Path]::GetFileName($cleanedExportPath))) {
                # It's a directory path
-               $customExportDir = $exportPath.TrimEnd('\')
+               $customExportDir = $cleanedExportPath
            }
            if (-not [string]::IsNullOrEmpty($customExportDir) -and (Test-Path $customExportDir)) {
                $searchPaths += $customExportDir
@@ -117,6 +119,19 @@
    else {
        # Remove trailing backslashes that can cause quote escaping issues
        $LogPath = $LogPath.TrimEnd('\')
+       
+       # If user provided a directory path, append default filename
+       if (Test-Path -Path $LogPath -PathType Container) {
+           $LogPath = Join-Path $LogPath "${baseFileName}.log"
+       }
+       elseif ([string]::IsNullOrEmpty([System.IO.Path]::GetFileName($LogPath))) {
+           # Path ends with backslash but doesn't exist yet - it's a directory
+           $LogPath = Join-Path $LogPath "${baseFileName}.log"
+       }
+       elseif ([string]::IsNullOrEmpty([System.IO.Path]::GetExtension($LogPath))) {
+           # No file extension - assume it's a directory path
+           $LogPath = Join-Path $LogPath "${baseFileName}.log"
+       }
    }
    
    if (-not $userProvidedExportPath) {
@@ -132,6 +147,10 @@
        }
        elseif ([string]::IsNullOrEmpty([System.IO.Path]::GetFileName($exportPath))) {
            # Path ends with backslash but doesn't exist yet - it's a directory
+           $exportPath = Join-Path $exportPath "${baseFileName}.csv"
+       }
+       elseif ([string]::IsNullOrEmpty([System.IO.Path]::GetExtension($exportPath))) {
+           # No file extension - assume it's a directory path
            $exportPath = Join-Path $exportPath "${baseFileName}.csv"
        }
    }
