@@ -15,6 +15,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automated email reporting
 - Dashboard/visualization support
 
+## [1.4.3] - 2025-10-10
+
+### Fixed
+- **Critical:** Custom export paths now properly respected when specified via `-exportPath` parameter
+- Script was ignoring user-provided export paths and always using temp directory
+- Progress file path now derived from custom export path location
+- Summary file path now correctly handles paths without .csv extension
+- Log file path now respects user-provided `-LogPath` parameter
+
+### Changed
+- Updated parallel script to v1.4.3
+- Enhanced path handling to check if user explicitly provided export/log paths via `$PSBoundParameters`
+- Progress files now created in same directory as export file when custom path used
+
+### Technical Details
+- Uses `$PSBoundParameters.ContainsKey()` to detect user-provided parameters
+- Derives progress file path from export file path for consistency
+- Improved file path handling with proper directory and filename extraction
+
+## [1.3.1] - 2025-10-10
+
+### Fixed
+- **Critical:** Custom export paths now properly respected when specified via `-exportPath` parameter
+- Script was ignoring user-provided export paths and always using temp directory
+- Progress file path now derived from custom export path location
+- Summary file path now correctly handles paths without .csv extension
+- Log file path now respects user-provided `-LogPath` parameter
+
+### Changed
+- Updated sequential script to v1.3.1
+- Enhanced path handling to check if user explicitly provided export/log paths via `$PSBoundParameters`
+- Progress files now created in same directory as export file when custom path used
+
+### Technical Details
+- Uses `$PSBoundParameters.ContainsKey()` to detect user-provided parameters
+- Derives progress file path from export file path for consistency
+- Improved file path handling with proper directory and filename extraction
+
 ## [1.4.2] - 2025-10-03
 
 ### Fixed
@@ -365,7 +403,10 @@ The token refresh is automatic and requires no parameter changes:
 - Minor version (0.X.0) - New features, backwards compatible
 - Patch version (0.0.X) - Bug fixes, backwards compatible
 
-[Unreleased]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.4.3...HEAD
+[1.4.3]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.4.2...v1.4.3
+[1.3.1]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.3.0...v1.3.1
+[1.4.2]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.4.1...v1.4.2
 [1.3.0]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/Phoenix-Software-Limited/pwsh-azure-storage-lifecycle/compare/v1.1.1...v1.1.3

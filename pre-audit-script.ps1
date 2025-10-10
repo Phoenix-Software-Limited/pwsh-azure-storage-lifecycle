@@ -1,7 +1,7 @@
    <#
    .SYNOPSIS
        Azure Storage Lifecycle Policy - Pre-Implementation Audit Script
-       Version: 1.3.0
+       Version: 1.3.1
        
        REQUIREMENTS:
        - PowerShell 7.0 or higher (recommended) or Windows PowerShell 5.1
@@ -67,6 +67,10 @@
    # Generate consistent file names for resume capability
    $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
    $baseFileName = "storage_audit_${storageAccount}_${timestamp}"
+   
+   # Determine if user provided custom paths
+   $userProvidedExportPath = $PSBoundParameters.ContainsKey('exportPath')
+   $userProvidedLogPath = $PSBoundParameters.ContainsKey('LogPath')
 
    # Override paths if resuming
    if ($Resume) {
@@ -87,12 +91,18 @@
        }
    }
 
-   # Set file paths
-   if (-not $LogPath.Contains($storageAccount)) {
+   # Set file paths - respect user-provided paths
+   if (-not $userProvidedLogPath) {
        $LogPath = "$env:TEMP\${baseFileName}.log"
    }
-   $exportPath = "$env:TEMP\${baseFileName}.csv"
-   $progressFilePath = "$env:TEMP\${baseFileName}_progress.json"
+   if (-not $userProvidedExportPath) {
+       $exportPath = "$env:TEMP\${baseFileName}.csv"
+   }
+   
+   # Derive progress file path from export path
+   $exportDir = [System.IO.Path]::GetDirectoryName($exportPath)
+   $exportBaseName = [System.IO.Path]::GetFileNameWithoutExtension($exportPath)
+   $progressFilePath = Join-Path $exportDir "${exportBaseName}_progress.json"
 
    # Create log file and helper function
    $script:LogPath = $LogPath
@@ -119,7 +129,7 @@
 
    Write-Log "=========================================="
    Write-Log "Storage Account Lifecycle Policy Audit"
-   Write-Log "(Sequential Version - v1.3.0 with Resume)"
+   Write-Log "(Sequential Version - v1.3.1 with Resume)"
    Write-Log "=========================================="
    Write-Log "Account: $storageAccount"
    Write-Log "Resource Group: $resourceGroup"
@@ -366,8 +376,10 @@
        $containerResults | Sort-Object Container | Export-Csv -Path $exportPath -NoTypeInformation
        Write-Log "Final consolidated results exported to: $exportPath" -Level "SUCCESS"
        
-       # Also create summary file
-       $summaryPath = $exportPath.Replace('.csv', '_summary.txt')
+       # Also create summary file - handle paths without .csv extension
+       $exportDir = [System.IO.Path]::GetDirectoryName($exportPath)
+       $exportBaseName = [System.IO.Path]::GetFileNameWithoutExtension($exportPath)
+       $summaryPath = Join-Path $exportDir "${exportBaseName}_summary.txt"
        @"
 Storage Account Lifecycle Policy Audit Summary
 ==============================================

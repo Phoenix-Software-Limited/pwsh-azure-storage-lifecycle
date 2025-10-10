@@ -338,31 +338,6 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 
 For issues, questions, or contributions, please open an issue in the repository.
 
-## Changelog
-
-### Version 1.1.1 (2025-10-03) - Bug Fix Release
-- **Fixed:** Script hanging when ThrottleLimit too high (Azure throttling issue)
-- **Fixed:** Azure Storage context serialization errors in parallel threads
-- **Fixed:** Progress counter not updating correctly in parallel execution
-- Added automatic retry logic (3 attempts with 5-second delays)
-- Added timestamp-based progress reporting with real-time container completion messages
-- Added validation and warning when ThrottleLimit > 10
-- Each parallel thread now recreates its own storage context
-- Containers that fail are tracked and reported in summary
-- Improved error handling and diagnostic messages
-
-### Version 1.1.0
-- Added multi-threaded parallel version (4-8x faster)
-- Configurable throttle limit for performance tuning
-- PowerShell 7+ support for parallel processing
-
-### Version 1.0.0
-- Initial release
-- Container-level analysis
-- Age distribution tracking
-- Cost savings calculations
-- CSV and text report exports
-
 ## Acknowledgments
 
 Built for Azure storage administrators and cloud operations teams to make data lifecycle management decisions easier and more informed.
