@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Azure Storage Lifecycle Policy - Pre-Implementation Audit Script (Multi-Threaded Version)
-    Version: 1.4.3
+    Version: 1.4.4
     
     REQUIREMENTS:
     - PowerShell 7.0 or higher (REQUIRED for parallel processing)
@@ -341,7 +341,7 @@ $costPerGBMonth = 0.0184  # UK South pricing as example
 
 Write-Log "=========================================="
 Write-Log "Storage Account Lifecycle Policy Audit"
-Write-Log "(Multi-Threaded Version - v1.4.3)"
+Write-Log "(Multi-Threaded Version - v1.4.4)"
 Write-Log "=========================================="
 Write-Log "Account: $storageAccount"
 Write-Log "Resource Group: $resourceGroup"
@@ -464,17 +464,19 @@ if ($Resume -and (Test-Path $progressFilePath)) {
     }
 }
 
-# Initialize progress tracking
-$progressData = @{
-    Timestamp = $timestamp
-    StorageAccount = $storageAccount
-    ResourceGroup = $resourceGroup
-    RetentionDays = $retentionDays
-    StartTime = (Get-Date).ToString('o')
-    LastUpdate = (Get-Date).ToString('o')
-    CompletedContainers = @($completedContainers.Keys)
+# Initialize progress tracking (only if not resuming)
+if (-not $Resume) {
+    $progressData = @{
+        Timestamp = $timestamp
+        StorageAccount = $storageAccount
+        ResourceGroup = $resourceGroup
+        RetentionDays = $retentionDays
+        StartTime = (Get-Date).ToString('o')
+        LastUpdate = (Get-Date).ToString('o')
+        CompletedContainers = @()
+    }
+    $progressData | ConvertTo-Json | Set-Content $progressFilePath
 }
-$progressData | ConvertTo-Json | Set-Content $progressFilePath
 
 Write-Log "Starting parallel analysis with $ThrottleLimit threads..." -Level "INFO"
 Write-Log "Processing containers - progress will be logged as each completes..." -Level "INFO"

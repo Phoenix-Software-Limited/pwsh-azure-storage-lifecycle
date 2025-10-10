@@ -15,6 +15,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automated email reporting
 - Dashboard/visualization support
 
+## [1.4.4] - 2025-10-10
+
+### Fixed
+- **Critical:** Resume functionality now works correctly - script no longer restarts from the beginning
+- Progress file was being overwritten at script initialization, causing resume to fail
+- Resume mode now properly skips progress file initialization to preserve completed container list
+
+### Changed
+- Progress file initialization now only occurs when NOT in resume mode
+- Improved logic flow to prevent accidental progress file overwrites during resume
+- Updated parallel script to v1.4.4
+
+### Technical Details
+- Wrapped progress file initialization in `if (-not $Resume)` condition
+- Progress file now preserved when `-Resume` parameter is used
+- Ensures previously completed containers are not re-processed
+
+### Usage
+Resume functionality now works as intended:
+```powershell
+# First run processes all containers
+.\pre-audit-script-parallel.ps1 -resourceGroup "rg" -storageAccount "storage" -retentionDays 90
+
+# If interrupted, resume picks up where it left off
+.\pre-audit-script-parallel.ps1 -resourceGroup "rg" -storageAccount "storage" -retentionDays 90 -Resume
+```
+
 ## [1.4.3] - 2025-10-10
 
 ### Fixed
