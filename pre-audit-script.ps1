@@ -74,9 +74,27 @@
 
    # Override paths if resuming
    if ($Resume) {
+       # Determine where to search for progress files
+       $searchPaths = @($env:TEMP)
+       
+       # If user provided export path, also search there
+       if ($userProvidedExportPath) {
+           $customExportDir = [System.IO.Path]::GetDirectoryName($exportPath.TrimEnd('\'))
+           if ([string]::IsNullOrEmpty([System.IO.Path]::GetFileName($exportPath.TrimEnd('\')))) {
+               # It's a directory path
+               $customExportDir = $exportPath.TrimEnd('\')
+           }
+           if (-not [string]::IsNullOrEmpty($customExportDir) -and (Test-Path $customExportDir)) {
+               $searchPaths += $customExportDir
+           }
+       }
+       
        # Find the most recent progress file for this storage account
-       $progressFiles = Get-ChildItem -Path $env:TEMP -Filter "storage_audit_${storageAccount}_*_progress.json" -ErrorAction SilentlyContinue |
-           Sort-Object LastWriteTime -Descending
+       $progressFiles = @()
+       foreach ($searchPath in $searchPaths) {
+           $progressFiles += Get-ChildItem -Path $searchPath -Filter "storage_audit_${storageAccount}_*_progress.json" -ErrorAction SilentlyContinue
+       }
+       $progressFiles = $progressFiles | Sort-Object LastWriteTime -Descending
        
        if ($progressFiles -and $progressFiles.Count -gt 0) {
            $progressFile = $progressFiles[0].FullName
@@ -84,6 +102,7 @@
            $baseFileName = [System.IO.Path]::GetFileNameWithoutExtension($progressFile).Replace('_progress', '')
            $timestamp = $progressData.Timestamp
            Write-Host "Resuming from previous run: $baseFileName" -ForegroundColor Cyan
+           Write-Host "Progress file found at: $progressFile" -ForegroundColor Cyan
        }
        else {
            Write-Warning "No previous run found for storage account '$storageAccount'. Starting fresh."
@@ -95,10 +114,18 @@
    if (-not $userProvidedLogPath) {
        $LogPath = "$env:TEMP\${baseFileName}.log"
    }
+   else {
+       # Remove trailing backslashes that can cause quote escaping issues
+       $LogPath = $LogPath.TrimEnd('\')
+   }
+   
    if (-not $userProvidedExportPath) {
        $exportPath = "$env:TEMP\${baseFileName}.csv"
    }
    else {
+       # Remove trailing backslashes that can cause quote escaping issues
+       $exportPath = $exportPath.TrimEnd('\')
+       
        # If user provided a directory path, append default filename
        if (Test-Path -Path $exportPath -PathType Container) {
            $exportPath = Join-Path $exportPath "${baseFileName}.csv"
