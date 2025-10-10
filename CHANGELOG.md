@@ -23,16 +23,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Progress file path now derived from custom export path location
 - Summary file path now correctly handles paths without .csv extension
 - Log file path now respects user-provided `-LogPath` parameter
+- **Directory path handling:** When user provides a directory path (ending with backslash), script now automatically appends a timestamped filename
 
 ### Changed
 - Updated parallel script to v1.4.3
 - Enhanced path handling to check if user explicitly provided export/log paths via `$PSBoundParameters`
 - Progress files now created in same directory as export file when custom path used
+- Added automatic detection of directory paths vs file paths
 
 ### Technical Details
 - Uses `$PSBoundParameters.ContainsKey()` to detect user-provided parameters
 - Derives progress file path from export file path for consistency
 - Improved file path handling with proper directory and filename extraction
+- Detects directory paths using `Test-Path -PathType Container` and empty filename checks
+- Automatically appends `${baseFileName}.csv` when directory path detected
 
 ## [1.3.1] - 2025-10-10
 
@@ -42,16 +46,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Progress file path now derived from custom export path location
 - Summary file path now correctly handles paths without .csv extension
 - Log file path now respects user-provided `-LogPath` parameter
+- **Directory path handling:** When user provides a directory path (ending with backslash), script now automatically appends a timestamped filename
 
 ### Changed
 - Updated sequential script to v1.3.1
 - Enhanced path handling to check if user explicitly provided export/log paths via `$PSBoundParameters`
 - Progress files now created in same directory as export file when custom path used
+- Added automatic detection of directory paths vs file paths
 
 ### Technical Details
 - Uses `$PSBoundParameters.ContainsKey()` to detect user-provided parameters
 - Derives progress file path from export file path for consistency
 - Improved file path handling with proper directory and filename extraction
+- Detects directory paths using `Test-Path -PathType Container` and empty filename checks
+- Automatically appends `${baseFileName}.csv` when directory path detected
 
 ## [1.4.2] - 2025-10-03
 

@@ -120,6 +120,16 @@ if (-not $userProvidedLogPath) {
 if (-not $userProvidedExportPath) {
     $exportPath = "$env:TEMP\${baseFileName}.csv"
 }
+else {
+    # If user provided a directory path, append default filename
+    if (Test-Path -Path $exportPath -PathType Container) {
+        $exportPath = Join-Path $exportPath "${baseFileName}.csv"
+    }
+    elseif ([string]::IsNullOrEmpty([System.IO.Path]::GetFileName($exportPath))) {
+        # Path ends with backslash but doesn't exist yet - it's a directory
+        $exportPath = Join-Path $exportPath "${baseFileName}.csv"
+    }
+}
 
 # Derive progress file path from export path
 $exportDir = [System.IO.Path]::GetDirectoryName($exportPath)
