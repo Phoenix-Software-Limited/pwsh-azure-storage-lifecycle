@@ -114,6 +114,15 @@
    $exportBaseName = [System.IO.Path]::GetFileNameWithoutExtension($exportPath)
    $progressFilePath = Join-Path $exportDir "${exportBaseName}_progress.json"
 
+   # Ensure directories exist before attempting to write files
+   $logDir = [System.IO.Path]::GetDirectoryName($LogPath)
+   if (-not [string]::IsNullOrEmpty($logDir) -and -not (Test-Path $logDir)) {
+       New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+   }
+   if (-not [string]::IsNullOrEmpty($exportDir) -and -not (Test-Path $exportDir)) {
+       New-Item -ItemType Directory -Path $exportDir -Force | Out-Null
+   }
+
    # Create log file and helper function
    $script:LogPath = $LogPath
    function Write-Log {
