@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Azure Storage Lifecycle Policy - Pre-Implementation Audit Script (Multi-Threaded Version)
-    Version: 1.4.4
+    Version: 1.4.5
     
     REQUIREMENTS:
     - PowerShell 7.0 or higher (REQUIRED for parallel processing)
@@ -103,12 +103,28 @@ if ($Resume) {
     if ($userProvidedExportPath) {
         # Clean path first before processing
         $cleanedExportPath = $exportPath.TrimEnd('\', '"', "'")
-        $customExportDir = [System.IO.Path]::GetDirectoryName($cleanedExportPath)
-        if ([string]::IsNullOrEmpty([System.IO.Path]::GetFileName($cleanedExportPath))) {
-            # It's a directory path
+        
+        # Check if the path exists and is a directory
+        if (Test-Path $cleanedExportPath -PathType Container -ErrorAction SilentlyContinue) {
+            # Path exists as a directory
             $customExportDir = $cleanedExportPath
         }
-        if (-not [string]::IsNullOrEmpty($customExportDir) -and (Test-Path $customExportDir)) {
+        else {
+            # Try to determine if it's meant to be a directory or file path
+            $filename = [System.IO.Path]::GetFileName($cleanedExportPath)
+            $extension = [System.IO.Path]::GetExtension($cleanedExportPath)
+            
+            if ([string]::IsNullOrEmpty($filename) -or [string]::IsNullOrEmpty($extension)) {
+                # No filename or no extension = likely a directory path
+                $customExportDir = $cleanedExportPath
+            }
+            else {
+                # Has filename with extension = file path, get directory
+                $customExportDir = [System.IO.Path]::GetDirectoryName($cleanedExportPath)
+            }
+        }
+        
+        if (-not [string]::IsNullOrEmpty($customExportDir) -and (Test-Path $customExportDir -ErrorAction SilentlyContinue)) {
             $searchPaths += $customExportDir
         }
     }
@@ -341,7 +357,7 @@ $costPerGBMonth = 0.0184  # UK South pricing as example
 
 Write-Log "=========================================="
 Write-Log "Storage Account Lifecycle Policy Audit"
-Write-Log "(Multi-Threaded Version - v1.4.4)"
+Write-Log "(Multi-Threaded Version - v1.4.5)"
 Write-Log "=========================================="
 Write-Log "Account: $storageAccount"
 Write-Log "Resource Group: $resourceGroup"

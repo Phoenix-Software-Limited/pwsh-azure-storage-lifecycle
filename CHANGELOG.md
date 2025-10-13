@@ -15,6 +15,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automated email reporting
 - Dashboard/visualization support
 
+## [1.4.5] - 2025-10-13
+
+### Fixed
+- **Critical:** Resume functionality now correctly detects directory paths for progress file search
+- Path without file extension (e.g., `"C:\Path\Script Output"`) now correctly identified as directory
+- Progress files are now found when custom export path is specified as directory
+- Improved path detection logic checks if path exists as directory before parsing filename
+
+### Changed
+- Enhanced path parsing in resume mode to handle directory paths without extensions
+- Updated parallel script to v1.4.5
+
+### Technical Details
+- Added `Test-Path -PathType Container` check before filename parsing
+- Checks for missing filename or extension to identify directory paths
+- Fixes issue where `GetDirectoryName()` incorrectly parsed directories as filenames
+- Example: `"C:\Users\Name\Downloads\Script Output"` now correctly identified as directory
+
+### Usage
+Resume now works correctly with directory paths:
+```powershell
+# Works correctly - finds progress files in "Script Output" folder
+.\pre-audit-script-parallel.ps1 -resourceGroup "rg" -storageAccount "storage" -retentionDays 32 -exportPath "C:\Users\Name\Downloads\Script Output" -Resume
+```
+
 ## [1.4.4] - 2025-10-10
 
 ### Fixed
